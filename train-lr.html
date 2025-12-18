@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Logistic Regression Classifier Training</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #333;
+    }
+    .status {
+      margin: 10px 0;
+      padding: 10px;
+      background: #e8f4f8;
+      border-radius: 4px;
+      white-space: pre-wrap;
+      font-family: monospace;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .error {
+      background: #fee;
+      color: #c00;
+    }
+    .success {
+      background: #efe;
+      color: #060;
+    }
+    button {
+      padding: 10px 20px;
+      margin: 5px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Logistic Regression Classifier Training</h1>
+    <p>This tool will train the logistic regression classifier using precomputed embeddings (embeddings.bin, labels.json, meta.json). The model will be trained offline and weights + bias will be saved.</p>
+    
+    <button id="loadBtn">1. Load Precomputed Data</button>
+    <button id="trainBtn" disabled>2. Train Model</button>
+    <button id="stopBtn" disabled style="background: #dc3545;">Stop Training</button>
+    <button id="saveBtn" disabled>3. Save Model</button>
+    
+    <div id="status" class="status">Ready. Click "Load CSV File" to begin.</div>
+  </div>
+
+  <script type="module" src="train-lr.js"></script>
+</body>
+</html>
+

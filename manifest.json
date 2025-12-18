@@ -1,0 +1,80 @@
+{
+  "manifest_version": 3,
+  "name": "Horizon: Social Media Dashboard",
+  "version": "0.0.1",
+  "description": "Personal and private social media consumption analytics",
+
+  "permissions": ["storage", "activeTab", "scripting"],
+
+  "host_permissions": [
+    "*://*.twitter.com/*",
+    "*://*.x.com/*",
+    "*://*.reddit.com/*",
+    "*://*.instagram.com/*",
+    "https://huggingface.co/*",
+    "https://*.huggingface.co/*",
+    "https://api.openai.com/*"
+  ],
+
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.twitter.com/*",
+        "*://*.x.com/*",
+        "*://*.reddit.com/*",
+        "*://*.instagram.com/*"
+      ],
+      "js": ["content_script.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Horizon"
+  },
+
+  "options_page": "options.html",
+
+  "icons": {
+    "16": "HorizonIcon16.png",
+    "32": "HorizonIcon32.png",
+    "64": "HorizonIcon64.png",
+    "128": "HorizonIcon128.png"
+  },
+
+  "web_accessible_resources": [
+    {
+      "matches": ["<all_urls>"],
+      "resources": [
+        "embedder.js",
+        "libs/transformers/dist/transformers.min.js",
+        "libs/transformers/dist/ort-wasm-simd-threaded.jsep.wasm",
+        "libs/transformers/dist/ort-wasm-simd-threaded.jsep.mjs",
+        "libs/models/all-MiniLM-L6-v2/*",
+        "libs/models/all-MiniLM-L6-v2/**/*",
+        "libs/models/SmolLM-135M/*",
+        "libs/models/SmolLM-135M/**/*",
+        "dataset/model_weights.json",
+        "csv-parser.js",
+        "logistic-regression-classifier.js",
+        "options.js",
+        "popup.js",
+        "chart.js",
+        "gpt_recommender.js",
+        "smollm_recommender.js",
+        "api_key.js"
+      ]
+    }
+  ],
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; script-src-elem 'self'; worker-src 'self'; object-src 'self';"
+  }
+}

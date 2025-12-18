@@ -1,0 +1,7 @@
+{
+  "count": 52500,
+  "dim": 384,
+  "dtype": "float32",
+  "model": "sentence-transformers/all-MiniLM-L6-v2",
+  "normalized": true
+}

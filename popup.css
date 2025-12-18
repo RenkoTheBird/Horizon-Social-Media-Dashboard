@@ -1,0 +1,78 @@
+/* popup.css */
+:root {
+  --bg: #f7fafc;
+  --card: #ffffff;
+  --accent: #2b6cb0;
+  --muted: #666;
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  margin: 0;
+  padding: 12px;
+  background: var(--bg);
+  color: #111;
+  width: 420px;
+}
+
+.container { 
+    display: flex; 
+    flex-direction: column; 
+    gap: 12px; 
+}
+
+header { display:flex; justify-content:space-between; align-items:center; }
+h1 { margin: 0; font-size: 18px; }
+.summarySmall { font-size: 12px; color: var(--muted); }
+#topDomains { list-style: none; padding: 0; margin: 0; max-height: 140px; overflow:auto; }
+#topDomains li { padding: 6px 8px; background: var(--card); margin-bottom: 6px; border-radius: 6px; display:flex; justify-content:space-between; align-items:center; }
+.charts { display:flex; gap: 16px; justify-content:space-between; flex-wrap: wrap; }
+.chartCard { 
+  background: var(--card); 
+  padding: 16px; 
+  border-radius: 12px; 
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08); 
+  flex: 1;
+  min-width: 280px;
+  border: 1px solid #e2e8f0;
+}
+.chartCard h3 {
+  margin: 0 0 16px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #2d3748;
+}
+.footer { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+#metrics { font-size: 12px; color: var(--muted); }
+.button-group { display: flex; gap: 8px; }
+button { background: var(--accent); color: white; border: none; padding: 6px 10px; border-radius:6px; cursor:pointer; font-size: 13px; }
+button:active { transform: translateY(1px); }
+button.clear-btn { background: #e53e3e; }
+button.clear-btn:hover { background: #c53030; }
+.lr-warning {
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #856404;
+  line-height: 1.5;
+}
+.lr-warning strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #d69e2e;
+}
+.classifier-status {
+  background: #e6fffa;
+  border: 1px solid #38a169;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: #22543d;
+  text-align: center;
+}
+.classifier-status strong {
+  color: #2f855a;
+}

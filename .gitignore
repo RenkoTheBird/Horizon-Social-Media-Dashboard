@@ -1,0 +1,20 @@
+# API Key file - DO NOT COMMIT
+api_key.js
+
+# Node modules
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# large ONNX models
+libs/models/SmolLM-135M/onnx/
+
+

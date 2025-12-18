@@ -1,0 +1,105 @@
+<!-- popup.html -->
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Horizon — Dashboard</title>
+    <link rel="stylesheet" href="popup.css" />
+    <!-- Chart.js (bundled locally) -->
+    <script src="chart.js"></script>
+  </head>
+  <body>
+    <div class="container">
+      <div id="initializingMessage" style="display: none; padding: 16px; text-align: center; color: #718096; background: #f7fafc; border-radius: 8px; margin-bottom: 12px;">
+        Initializing extension...
+      </div>
+      <div id="clearingMessage" style="display: none; padding: 16px; text-align: center; color: #718096; background: #f7fafc; border-radius: 8px; margin-bottom: 12px;">
+        Clearing data...
+      </div>
+      <header>
+        <h1>Horizon</h1>
+        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+          <div id="currentDateTime" class="summarySmall" style="font-size: 11px; color: #718096;"></div>
+          <div id="summarySmall" class="summarySmall"></div>
+        </div>
+      </header>
+      
+      <div id="classifierStatus" class="classifier-status" style="display: none;">
+        <span id="classifierStatusText"></span>
+      </div>
+      
+      <div id="recommendationsLLMStatusGlobal" style="font-size: 12px; color: #718096; margin-bottom: 12px; padding: 8px; background: #edf2f7; border-radius: 4px; display: none;">
+        <span id="recommendationsLLMStatusGlobalText"></span>
+      </div>
+
+      <section id="topListSection">
+        <h2>Top domains (today)</h2>
+        <ul id="topDomains"></ul>
+      </section>
+
+      <section class="charts">
+        <div class="chartCard">
+          <h3>Time by Content Type</h3>
+          <div style="position: relative; height: 250px;">
+            <canvas id="contentPie"></canvas>
+          </div>
+        </div>
+        <div class="chartCard">
+          <h3>Topic Classifications</h3>
+          <div style="position: relative; height: 250px;">
+            <canvas id="topicChart"></canvas>
+          </div>
+        </div>
+        <div class="chartCard">
+          <h3>Posts per Topic</h3>
+          <div style="position: relative; height: 250px;">
+            <canvas id="topicCountBar"></canvas>
+          </div>
+        </div>
+        <div class="chartCard">
+          <h3>Top Domains</h3>
+          <div style="position: relative; height: 250px;">
+            <canvas id="domainsBar"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <section id="previousDaySummarySection" style="display: none;">
+        <h2>Yesterday's Summary</h2>
+        <div id="previousDayDate" style="font-size: 13px; color: #4a5568; margin-bottom: 12px; font-weight: 600;"></div>
+        <div id="previousDaySummaryContent" style="background: #f7fafc; padding: 16px; border-radius: 8px; border-left: 4px solid #38a169;">
+          <div id="previousDaySummaryStats" style="font-size: 13px; line-height: 1.8; color: #2d3748;"></div>
+        </div>
+      </section>
+
+      <section id="recommendationsSection" style="display: none;">
+        <h2>Content Recommendations</h2>
+        <div id="recommendationsDate" style="font-size: 13px; color: #4a5568; margin-bottom: 12px; font-weight: 600;"></div>
+        <div id="recommendationsNote" style="font-size: 12px; color: #718096; margin-bottom: 12px; padding: 8px; background: #edf2f7; border-radius: 4px; display: none;">
+          <span>Note: If you did not use social media yesterday, recommendations will appear from the last day you used social media.</span>
+        </div>
+        <div id="recommendationsLLMStatus" style="font-size: 12px; color: #718096; margin-bottom: 12px; padding: 8px; background: #edf2f7; border-radius: 4px; display: none;">
+          <span id="recommendationsLLMStatusText"></span>
+        </div>
+        <div id="recommendationsContent">
+          <div id="recommendationsLoading" style="display: none; padding: 16px; text-align: center; color: #718096;">
+            Generating recommendations...
+          </div>
+          <div id="recommendationsList"></div>
+          <div id="recommendationsError" style="display: none; padding: 16px; color: #e53e3e; background: #fed7d7; border-radius: 6px; margin-top: 12px;"></div>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <div id="metrics"></div>
+        <div class="button-group">
+          <button id="refreshBtn">Refresh</button>
+          <button id="clearBtn" class="clear-btn">Clear Today</button>
+        </div>
+      </footer>
+    </div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
