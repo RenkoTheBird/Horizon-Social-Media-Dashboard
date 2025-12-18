@@ -1,7 +1,5 @@
 ---Horizon: Social Media Dashboard---
-Created by:
-            Erick Cuadra
-            Gabriel Ruiz
+Created by Cuadra & Ruiz (CAP5610 Final Project)
 
 This folder contains the following files:
     background.js: Sets up caching, scripts, storage, logistic regression classifier, and data management.
@@ -24,10 +22,9 @@ This folder contains the following files:
         meta.json: LR weights metadata.
         model_weights.json: weights of posts, which the extension uses as LR sample data.
         train_lr_from_bin.py: creates the above json files.
-        prompt_examples.json: examples which were intended to be used for fine tuning.
 
     libs folder
-        models: holds embedding model (all-MiniLM-L6-V2) and SmolLM-135M
+        models: holds embedding model (all-MiniLM-L6-V2) and SmolLM-135M (not included due to large files, can be found on HuggingFace)
         transformers: transformers.js implementation (3.8.0) (has to be local for Chrome extension)
 
     Classification model (uses Logistic Regression) is automatically trained on extension launch.
