@@ -80,12 +80,18 @@ async function clearOldDailyData() {
     // Get all storage keys
     const allData = await chrome.storage.local.get(null);
     
-    // Check if recommendations have been generated for yesterday
-    const stored = await chrome.storage.local.get(['lastRecommendationDay']);
+    // Check if recommendations have been generated and for which date
+    const stored = await chrome.storage.local.get(['lastRecommendationDay', 'horizon_recommendations_date']);
     const lastRecommendationDay = stored.lastRecommendationDay || null;
+    const recommendationsDate = stored.horizon_recommendations_date || null;
     
-    // Find and remove all day_* keys except today's and yesterday's (if recommendations not yet generated)
+    console.log('[Horizon] clearOldDailyData - preserving data for recommendations date:', recommendationsDate);
+    
+    // Find and remove all day_* keys except today's and the day for which recommendations were generated
     const keysToRemove = [];
+    const allDayKeys = Object.keys(allData).filter(k => k.startsWith('day_'));
+    console.log('[Horizon] clearOldDailyData - all day_ keys before cleanup:', allDayKeys);
+    
     for (const key in allData) {
       if (key.startsWith('day_') && key !== todayKey) {
         // Preserve yesterday's data if we haven't generated recommendations for it yet
@@ -93,13 +99,30 @@ async function clearOldDailyData() {
           console.log(`[Horizon] Preserving ${yesterdayKey} data until recommendations are generated`);
           continue;
         }
+        // Preserve the day's data for which recommendations were generated (so summary can be displayed)
+        if (recommendationsDate) {
+          const recommendationsKey = `day_${recommendationsDate}`;
+          if (key === recommendationsKey) {
+            console.log(`[Horizon] Preserving ${recommendationsKey} data for summary display`);
+            continue;
+          }
+        }
         keysToRemove.push(key);
       }
     }
     
+    console.log('[Horizon] clearOldDailyData - keys to remove:', keysToRemove);
+    
     if (keysToRemove.length > 0) {
       await chrome.storage.local.remove(keysToRemove);
       console.log(`[Horizon] Cleared ${keysToRemove.length} old daily data entries:`, keysToRemove);
+    }
+    
+    // Verify the recommendations date data still exists after cleanup
+    if (recommendationsDate) {
+      const recommendationsKey = `day_${recommendationsDate}`;
+      const verifyData = await chrome.storage.local.get([recommendationsKey]);
+      console.log('[Horizon] clearOldDailyData - after cleanup, recommendations data exists:', !!verifyData[recommendationsKey]);
     }
   } catch (error) {
     console.error('[Horizon] Error clearing old daily data:', error);
@@ -206,12 +229,29 @@ async function checkDayEndAndGenerateRecommendations() {
               
               if (recommendations && recommendations.trim().length > 0) {
                 // Store recommendations with the date from the data itself (not calculated yesterday)
+                // Also store a snapshot of the summary data so it can be displayed later
+                const summarySnapshot = {
+                  day: data.day || dataDate,
+                  byDomain: data.byDomain || {},
+                  byContentType: data.byContentType || {},
+                  byTopic: data.byTopic || {},
+                  byTopicCounts: data.byTopicCounts || {},
+                  totalMs: data.totalMs || 0,
+                  embeddingSamples: data.embeddingSamples || [],
+                  lrProbabilities: data.lrProbabilities || {},
+                  seenPosts: data.seenPosts || {}
+                };
+                
                 await chrome.storage.local.set({
                   'horizon_recommendations': recommendations,
                   'horizon_recommendations_date': dataDate,
-                  'lastRecommendationDay': dataDate
+                  'lastRecommendationDay': dataDate,
+                  'horizon_recommendations_summary': summarySnapshot, // Store snapshot for display
+                  'horizon_summary_snapshot': summarySnapshot, // Also store as regular summary snapshot for consistency
+                  'horizon_summary_date': dataDate // Store the date for the summary
                 });
                 console.log(`[Horizon] Recommendations generated and saved for ${dataDate}`);
+                console.log(`[Horizon] Summary snapshot stored with ${Object.keys(summarySnapshot.byTopicCounts).length} topics`);
                 console.log(`[Horizon] Recommendations preview: ${recommendations.substring(0, 100)}...`);
               } else {
                 console.warn(`[Horizon] No recommendations generated for ${dataDate} (empty result)`);
@@ -1162,14 +1202,15 @@ async function updateBadge(totalMs) {
 }
 
 // Get today's summary
-async function getTodaySummary() {
+async function getTodaySummary(skipRecommendationCheck = false) {
   const today = getLocalDateString();
   const key = `day_${today}`;
   
-  // Check for day-end and generate recommendations BEFORE clearing old data
-  // This ensures we can access yesterday's data to generate recommendations
-  // This is called when the popup opens, so recommendations will be generated if needed
-  await checkDayEndAndGenerateRecommendations();
+  // Only check for day-end and generate recommendations if not skipped
+  // This allows the popup to load summary first, then generate recommendations separately
+  if (!skipRecommendationCheck) {
+    await checkDayEndAndGenerateRecommendations();
+  }
   
   // Clear old daily data when accessing today's summary
   // This ensures old data is cleaned up when the popup is opened
@@ -1228,15 +1269,55 @@ async function getTodaySummary() {
 // Get previous day's summary (the data used for recommendations)
 async function getPreviousDaySummary() {
   try {
-    // Get the date for which recommendations were generated
-    const stored = await chrome.storage.local.get(['horizon_recommendations_date']);
+    // First, try to get the stored summary snapshot (most reliable)
+    const stored = await chrome.storage.local.get(['horizon_recommendations_date', 'horizon_recommendations_summary']);
+    const summarySnapshot = stored.horizon_recommendations_summary;
     let recommendationsDate = stored.horizon_recommendations_date;
     
+    console.log('[Horizon] getPreviousDaySummary - recommendationsDate from storage:', recommendationsDate);
+    console.log('[Horizon] getPreviousDaySummary - summary snapshot exists:', !!summarySnapshot);
+    
+    // If we have a stored snapshot, use it (this is the most reliable source)
+    if (summarySnapshot && summarySnapshot.day) {
+      console.log('[Horizon] getPreviousDaySummary - using stored summary snapshot for:', summarySnapshot.day);
+      // Ensure all required fields exist
+      const summary = {
+        day: summarySnapshot.day,
+        byDomain: summarySnapshot.byDomain || {},
+        byContentType: summarySnapshot.byContentType || {},
+        byTopic: summarySnapshot.byTopic || {},
+        byTopicCounts: summarySnapshot.byTopicCounts || {},
+        totalMs: summarySnapshot.totalMs || 0,
+        embeddingSamples: summarySnapshot.embeddingSamples || [],
+        lrProbabilities: summarySnapshot.lrProbabilities || {},
+        seenPosts: summarySnapshot.seenPosts || {}
+      };
+      
+      // Debug logging
+      console.log('[Horizon] Previous day summary retrieved from snapshot:', {
+        day: summary.day,
+        totalMs: summary.totalMs,
+        byTopicCountsKeys: Object.keys(summary.byTopicCounts),
+        byTopicCountsTotal: Object.values(summary.byTopicCounts).reduce((sum, count) => sum + count, 0),
+        byTopicKeys: Object.keys(summary.byTopic),
+        byTopicTotal: Object.values(summary.byTopic).reduce((sum, time) => sum + (time || 0), 0),
+        seenPostsCount: Object.keys(summary.seenPosts).length
+      });
+      
+      return summary;
+    }
+    
+    // If no snapshot but we have a recommendations date, the data should still be in storage
+    // (preserved by clearOldDailyData). Try to get it from storage.
+    
+    // If no snapshot, try to get the data from storage (fallback)
     // If no recommendations date, try to get yesterday's data
     if (!recommendationsDate) {
       const yesterday = getYesterdayDateString();
       const yesterdayKey = `day_${yesterday}`;
       const yesterdayData = await chrome.storage.local.get([yesterdayKey]);
+      
+      console.log('[Horizon] getPreviousDaySummary - no recommendations date, checking yesterday:', yesterday, 'found:', !!yesterdayData[yesterdayKey]);
       
       if (yesterdayData[yesterdayKey]) {
         recommendationsDate = yesterday;
@@ -1245,6 +1326,8 @@ async function getPreviousDaySummary() {
         const today = getLocalDateString();
         const allData = await chrome.storage.local.get(null);
         const dayKeys = Object.keys(allData).filter(key => key.startsWith('day_') && key !== `day_${today}`);
+        
+        console.log('[Horizon] getPreviousDaySummary - searching for most recent day, found keys:', dayKeys);
         
         if (dayKeys.length > 0) {
           // Sort day keys by date (most recent first)
@@ -1256,8 +1339,10 @@ async function getPreviousDaySummary() {
           
           const mostRecentKey = dayKeys[0];
           recommendationsDate = mostRecentKey.replace('day_', '');
+          console.log('[Horizon] getPreviousDaySummary - using most recent day:', recommendationsDate);
         } else {
           // No previous day data available
+          console.log('[Horizon] getPreviousDaySummary - no previous day data available');
           return null;
         }
       }
@@ -1265,16 +1350,22 @@ async function getPreviousDaySummary() {
     
     // Get the data for that date
     const key = `day_${recommendationsDate}`;
+    console.log('[Horizon] getPreviousDaySummary - looking for data with key:', key);
     const result = await chrome.storage.local.get([key]);
     const data = result[key];
     
+    console.log('[Horizon] getPreviousDaySummary - data found:', !!data, 'keys in result:', Object.keys(result));
+    
     if (!data) {
-      // Data might have been cleared already
+      // Data might have been cleared already - let's check all day_ keys
+      const allData = await chrome.storage.local.get(null);
+      const allDayKeys = Object.keys(allData).filter(k => k.startsWith('day_'));
+      console.log('[Horizon] getPreviousDaySummary - data not found. All day_ keys in storage:', allDayKeys);
       return null;
     }
     
-    // Return the summary in the same format as getTodaySummary
-    return {
+    // Ensure all required fields exist and are properly initialized
+    const summary = {
       day: data.day || recommendationsDate,
       byDomain: data.byDomain || {},
       byContentType: data.byContentType || {},
@@ -1282,8 +1373,27 @@ async function getPreviousDaySummary() {
       byTopicCounts: data.byTopicCounts || {},
       totalMs: data.totalMs || 0,
       embeddingSamples: data.embeddingSamples || [],
-      lrProbabilities: data.lrProbabilities || {}
+      lrProbabilities: data.lrProbabilities || {},
+      seenPosts: data.seenPosts || {} // Include seenPosts for potential fallback calculations
     };
+    
+    // Ensure byTopicCounts is properly initialized (should already be, but double-check)
+    if (!summary.byTopicCounts || typeof summary.byTopicCounts !== 'object') {
+      summary.byTopicCounts = {};
+    }
+    
+    // Debug logging to help diagnose data issues
+    console.log('[Horizon] Previous day summary retrieved:', {
+      day: summary.day,
+      totalMs: summary.totalMs,
+      byTopicCountsKeys: Object.keys(summary.byTopicCounts),
+      byTopicCountsTotal: Object.values(summary.byTopicCounts).reduce((sum, count) => sum + count, 0),
+      byTopicKeys: Object.keys(summary.byTopic),
+      byTopicTotal: Object.values(summary.byTopic).reduce((sum, time) => sum + (time || 0), 0),
+      seenPostsCount: Object.keys(summary.seenPosts).length
+    });
+    
+    return summary;
   } catch (error) {
     console.error('[Horizon] Error getting previous day summary:', error);
     return null;
@@ -1558,13 +1668,106 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       sendResponse({ success: true, topic, embeddingHash: embeddingResult.hash });
     } else if (msg.type === 'get_today_summary') {
-      const summary = await getTodaySummary();
+      const skipRecommendationCheck = msg.skipRecommendationCheck || false;
+      const summary = await getTodaySummary(skipRecommendationCheck);
       // Update badge when popup requests summary
       await updateBadge(summary.totalMs);
       sendResponse(summary);
     } else if (msg.type === 'get_previous_day_summary') {
       const summary = await getPreviousDaySummary();
       sendResponse(summary);
+    } else if (msg.type === 'generate_recommendations_for_data') {
+      // Generate recommendations using data that was already loaded (to avoid redundant retrieval)
+      const data = msg.data;
+      const dataDate = msg.date;
+      if (!data || !dataDate) {
+        sendResponse({ success: false, error: 'Missing data or date' });
+        return;
+      }
+      
+      // Get settings
+      const { settings } = await chrome.storage.local.get(['settings']);
+      
+      // Only generate if recommendations are enabled
+      if (!settings || settings.enableRecommendations !== true) {
+        sendResponse({ success: false, error: 'Recommendations are disabled' });
+        return;
+      }
+      
+      // Check if we have enough data
+      if (!data.totalMs || data.totalMs < 60000) {
+        sendResponse({ success: false, error: 'Not enough consumption data' });
+        return;
+      }
+      
+      // Get LLM preference (default to 'smollm')
+      const llmPreference = settings.recommendationLLM || 'smollm';
+      
+      try {
+        let recommendations = '';
+        
+        if (llmPreference === 'chatgpt') {
+          // Generate using ChatGPT
+          const result = await generateRecommendationsForDate(dataDate, data);
+          if (result && result.success) {
+            recommendations = result.recommendations || '';
+          } else {
+            console.warn(`[Horizon] Failed to generate ChatGPT recommendations for ${dataDate}:`, result?.error);
+            // Try SmolLM as fallback
+            const fallbackResult = await generateSmolLMRecommendationsForDate(dataDate, data);
+            if (fallbackResult && fallbackResult.success) {
+              recommendations = fallbackResult.recommendations || '';
+              console.log(`[Horizon] Used SmolLM as fallback for ${dataDate}`);
+            }
+          }
+        } else {
+          // Generate using SmolLM
+          const result = await generateSmolLMRecommendationsForDate(dataDate, data);
+          if (result && result.success) {
+            recommendations = result.recommendations || '';
+          } else {
+            console.warn(`[Horizon] Failed to generate SmolLM recommendations for ${dataDate}:`, result?.error);
+          }
+        }
+        
+        if (recommendations && recommendations.trim().length > 0) {
+          // Store recommendations with the date from the data itself
+          // Also store a snapshot of the summary data so it can be displayed later
+          const summarySnapshot = {
+            day: data.day || dataDate,
+            byDomain: data.byDomain || {},
+            byContentType: data.byContentType || {},
+            byTopic: data.byTopic || {},
+            byTopicCounts: data.byTopicCounts || {},
+            totalMs: data.totalMs || 0,
+            embeddingSamples: data.embeddingSamples || [],
+            lrProbabilities: data.lrProbabilities || {},
+            seenPosts: data.seenPosts || {}
+          };
+          
+          await chrome.storage.local.set({
+            'horizon_recommendations': recommendations,
+            'horizon_recommendations_date': dataDate,
+            'lastRecommendationDay': dataDate,
+            'horizon_recommendations_summary': summarySnapshot, // Store snapshot for display
+            'horizon_summary_snapshot': summarySnapshot, // Also store as regular summary snapshot for consistency
+            'horizon_summary_date': dataDate // Store the date for the summary
+          });
+          console.log(`[Horizon] Recommendations generated and saved for ${dataDate} (using provided data)`);
+          console.log(`[Horizon] Summary snapshot stored with ${Object.keys(summarySnapshot.byTopicCounts).length} topics`);
+          sendResponse({ success: true, recommendations: recommendations });
+        } else {
+          console.warn(`[Horizon] No recommendations generated for ${dataDate} (empty result)`);
+          // Still mark as processed to avoid repeated attempts
+          await chrome.storage.local.set({ 'lastRecommendationDay': dataDate });
+          sendResponse({ success: false, error: 'No recommendations generated' });
+        }
+      } catch (error) {
+        console.error(`[Horizon] Error generating recommendations for ${dataDate}:`, error);
+        // Mark as processed even on error to avoid infinite retries
+        await chrome.storage.local.set({ 'lastRecommendationDay': dataDate });
+        sendResponse({ success: false, error: error.message || 'Failed to generate recommendations' });
+      }
     } else if (msg.type === 'check_lr_model') {
       // Check if logistic regression model is loaded
       try {

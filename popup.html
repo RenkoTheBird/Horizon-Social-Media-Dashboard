@@ -5,15 +5,15 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Horizon — Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="popup.css" />
     <!-- Chart.js (bundled locally) -->
     <script src="chart.js"></script>
   </head>
   <body>
     <div class="container">
-      <div id="initializingMessage" style="display: none; padding: 16px; text-align: center; color: #718096; background: #f7fafc; border-radius: 8px; margin-bottom: 12px;">
-        Initializing extension...
-      </div>
       <div id="clearingMessage" style="display: none; padding: 16px; text-align: center; color: #718096; background: #f7fafc; border-radius: 8px; margin-bottom: 12px;">
         Clearing data...
       </div>
@@ -28,23 +28,8 @@
       <div id="classifierStatus" class="classifier-status" style="display: none;">
         <span id="classifierStatusText"></span>
       </div>
-      
-      <div id="recommendationsLLMStatusGlobal" style="font-size: 12px; color: #718096; margin-bottom: 12px; padding: 8px; background: #edf2f7; border-radius: 4px; display: none;">
-        <span id="recommendationsLLMStatusGlobalText"></span>
-      </div>
-
-      <section id="topListSection">
-        <h2>Top domains (today)</h2>
-        <ul id="topDomains"></ul>
-      </section>
 
       <section class="charts">
-        <div class="chartCard">
-          <h3>Time by Content Type</h3>
-          <div style="position: relative; height: 250px;">
-            <canvas id="contentPie"></canvas>
-          </div>
-        </div>
         <div class="chartCard">
           <h3>Topic Classifications</h3>
           <div style="position: relative; height: 250px;">
@@ -61,6 +46,12 @@
           <h3>Top Domains</h3>
           <div style="position: relative; height: 250px;">
             <canvas id="domainsBar"></canvas>
+          </div>
+        </div>
+        <div class="chartCard">
+          <h3>Time by Content Type</h3>
+          <div style="position: relative; height: 250px;">
+            <canvas id="contentPie"></canvas>
           </div>
         </div>
       </section>

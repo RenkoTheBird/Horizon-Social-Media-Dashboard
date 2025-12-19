@@ -8,6 +8,20 @@ function formatMinutes(ms) {
   return `${mins} min`;
 }
 
+function formatMinutesAndSeconds(ms) {
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  
+  if (minutes === 0) {
+    return `${seconds} sec`;
+  } else if (seconds === 0) {
+    return `${minutes} min`;
+  } else {
+    return `${minutes} min ${seconds} sec`;
+  }
+}
+
 function formatDateTime() {
   const now = new Date();
   const date = now.toLocaleDateString('en-US', { 
@@ -267,9 +281,43 @@ function renderCharts(byContentType, byDomain, byTopic, byTopicCounts) {
     return;
   }
   
-  const topicContext = topicCtx.getContext('2d');
+  // Get the container div for the topic chart
+  const topicChartContainer = topicCtx.parentElement;
+  let topicNoDataMessage = document.getElementById('topicNoDataMessage');
+  
   // Filter topics with meaningful time (> 1000ms = 1 second minimum)
   const topicLabels = Object.keys(byTopic || {}).filter(k => byTopic[k] >= 1000);
+  
+  // Check if there's no data
+  if (topicLabels.length === 0) {
+    // Hide the canvas
+    topicCtx.style.display = 'none';
+    
+    // Destroy existing chart if any
+    if (topicChart) {
+      topicChart.destroy();
+      topicChart = null;
+    }
+    
+    // Create or show the no data message
+    if (!topicNoDataMessage) {
+      topicNoDataMessage = document.createElement('div');
+      topicNoDataMessage.id = 'topicNoDataMessage';
+      topicNoDataMessage.style.cssText = 'display: flex; align-items: center; justify-content: center; height: 100%; padding: 20px; text-align: center; color: #718096; font-size: 14px; line-height: 1.6;';
+      topicChartContainer.appendChild(topicNoDataMessage);
+    }
+    topicNoDataMessage.style.display = 'flex';
+    topicNoDataMessage.textContent = 'No data has been collected yet. Use the extension for a while to see topic classifications here.';
+    return;
+  }
+  
+  // There is data, so hide the message and show the chart
+  if (topicNoDataMessage) {
+    topicNoDataMessage.style.display = 'none';
+  }
+  topicCtx.style.display = 'block';
+  
+  const topicContext = topicCtx.getContext('2d');
   // Convert to minutes, but keep at least 0.1 min for display if there's any time
   const topicData = topicLabels.map(k => {
     const minutes = byTopic[k] / MS_TO_MIN;
@@ -311,13 +359,6 @@ function renderCharts(byContentType, byDomain, byTopic, byTopicCounts) {
     topicColors[label] || '#319795'
   );
   
-  // Handle empty data
-  if (topicLabels.length === 0) {
-    topicLabels.push('No data');
-    topicData.push(0);
-    topicBackgroundColor.push('#e2e8f0');
-  }
-  
   if (topicChart) topicChart.destroy();
   topicChart = new Chart(topicContext, {
     type: 'doughnut',
@@ -331,6 +372,7 @@ function renderCharts(byContentType, byDomain, byTopic, byTopicCounts) {
     options: {
       responsive: true,
       maintainAspectRatio: true,
+      aspectRatio: 1.5,
       plugins: {
         legend: { 
           position: 'bottom',
@@ -338,7 +380,23 @@ function renderCharts(byContentType, byDomain, byTopic, byTopicCounts) {
             font: {
               size: 12
             },
-            padding: 12
+            padding: 12,
+            generateLabels: function(chart) {
+              const data = chart.data;
+              const dataset = data.datasets[0];
+              const total = dataset.data.reduce((a, b) => a + b, 0);
+              
+              return data.labels.map((label, index) => {
+                const value = dataset.data[index];
+                const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                return {
+                  text: `${label} (${percentage}%)`,
+                  fillStyle: dataset.backgroundColor[index],
+                  hidden: false,
+                  index: index
+                };
+              });
+            }
           }
         },
         tooltip: {
@@ -417,7 +475,8 @@ function renderCharts(byContentType, byDomain, byTopic, byTopicCounts) {
               if (context.parsed.y === 0 && countEntries.length === 0) {
                 return 'Topic classifications will appear here once available';
               }
-              return `${context.parsed.y} posts`;
+              const count = context.parsed.y;
+              return `${count} post${count !== 1 ? 's' : ''}`;
             }
           }
         }
@@ -428,7 +487,7 @@ function renderCharts(byContentType, byDomain, byTopic, byTopicCounts) {
           ticks: {
             stepSize: 1,
             callback: function(value) {
-              return `${value} posts`;
+              return `${value} post${value !== 1 ? 's' : ''}`;
             }
           }
         },
@@ -500,7 +559,6 @@ function drawUI(cache) {
       summarySmallEl.textContent = `Today • ${formatMinutes(totalMs)}`;
     }
 
-    renderTopDomains(byDomain, totalMs);
     renderCharts(byContentType, byDomain, byTopic, byTopicCounts);
     renderMetrics(byDomain, byContentType, totalMs);
   } catch (error) {
@@ -554,9 +612,6 @@ function updateClassifierStatus() {
       } else {
         classifierStatus.style.display = 'none';
       }
-      
-      // Update LLM status note below classifier status
-      updateRecommendationsLLMStatusGlobal();
     });
   });
 }
@@ -591,16 +646,39 @@ function renderPreviousDaySummary(summary) {
   const dateElement = document.getElementById('previousDayDate');
   const statsElement = document.getElementById('previousDaySummaryStats');
   
-  if (!section || !dateElement || !statsElement) return;
+  console.log('[Horizon Popup] renderPreviousDaySummary called:', {
+    sectionExists: !!section,
+    dateElementExists: !!dateElement,
+    statsElementExists: !!statsElement,
+    summaryExists: !!summary,
+    summaryDay: summary?.day
+  });
+  
+  if (!section || !dateElement || !statsElement) {
+    console.error('[Horizon Popup] Missing required elements for previous day summary');
+    return;
+  }
   
   if (!summary || !summary.day) {
     // No previous day data available
+    console.log('[Horizon Popup] No previous day data, hiding section');
     section.style.display = 'none';
     return;
   }
   
   // Show the section
+  console.log('[Horizon Popup] Showing previous day summary section for:', summary.day);
   section.style.display = 'block';
+  section.style.visibility = 'visible';
+  section.style.opacity = '1';
+  
+  // Store the summary snapshot so it persists across popup closes (like recommendations)
+  chrome.storage.local.set({
+    'horizon_summary_snapshot': summary,
+    'horizon_summary_date': summary.day
+  }, () => {
+    console.log('[Horizon Popup] Summary snapshot stored for persistence');
+  });
   
   // Format and display the date
   const dateObj = new Date(summary.day + 'T00:00:00');
@@ -613,31 +691,52 @@ function renderPreviousDaySummary(summary) {
   
   // Calculate statistics
   const totalMs = summary.totalMs || 0;
-  const totalMinutes = Math.round(totalMs / MS_TO_MIN);
-  const totalHours = Math.floor(totalMinutes / 60);
-  const remainingMinutes = totalMinutes % 60;
   
   const byDomain = summary.byDomain || {};
   const byContentType = summary.byContentType || {};
   const byTopic = summary.byTopic || {};
   const byTopicCounts = summary.byTopicCounts || {};
+  const seenPosts = summary.seenPosts || {};
   
   // Get top domains
   const topDomains = topNFromMap(byDomain, 5);
   const topContentTypes = topNFromMap(byContentType, 5);
   const topTopics = topNFromMap(byTopic, 5);
-  const totalPosts = Object.values(byTopicCounts).reduce((sum, count) => sum + count, 0);
+  
+  // Calculate total posts from byTopicCounts (primary source)
+  let totalPosts = Object.values(byTopicCounts).reduce((sum, count) => sum + (count || 0), 0);
+  
+  // Fallback: if byTopicCounts seems incomplete but we have seenPosts, use seenPosts count
+  // This helps catch cases where byTopicCounts might not have been properly updated
+  if (totalPosts === 0 && Object.keys(seenPosts).length > 0) {
+    // Count unique posts from seenPosts that have valid titles and topics
+    const validPosts = Object.values(seenPosts).filter(post => 
+      post && post.title && post.title.trim().length > 5 && post.topic && post.topic !== 'unknown'
+    );
+    if (validPosts.length > 0) {
+      console.log('[Horizon] Using seenPosts fallback for post count:', validPosts.length);
+      totalPosts = validPosts.length;
+    }
+  }
+  
+  // Debug logging
+  console.log('[Horizon] Previous day summary stats:', {
+    totalMs,
+    totalPosts,
+    byTopicCountsTotal: Object.values(byTopicCounts).reduce((sum, count) => sum + (count || 0), 0),
+    seenPostsCount: Object.keys(seenPosts).length,
+    byTopicKeys: Object.keys(byTopic).length,
+    byDomainKeys: Object.keys(byDomain).length
+  });
   
   // Build summary HTML
   let summaryHTML = '';
   
-  // Total time
-  if (totalHours > 0) {
-    summaryHTML += `<div style="margin-bottom: 12px;"><strong>Total Time:</strong> ${totalHours} hour${totalHours !== 1 ? 's' : ''} ${remainingMinutes} minute${remainingMinutes !== 1 ? 's' : ''}</div>`;
-  } else if (totalMinutes > 0) {
-    summaryHTML += `<div style="margin-bottom: 12px;"><strong>Total Time:</strong> ${totalMinutes} minute${totalMinutes !== 1 ? 's' : ''}</div>`;
+  // Total time - format as minutes and seconds (not rounded)
+  if (totalMs > 0) {
+    summaryHTML += `<div style="margin-bottom: 12px;"><strong>Total Time:</strong> ${formatMinutesAndSeconds(totalMs)}</div>`;
   } else {
-    summaryHTML += `<div style="margin-bottom: 12px;"><strong>Total Time:</strong> Less than 1 minute</div>`;
+    summaryHTML += `<div style="margin-bottom: 12px;"><strong>Total Time:</strong> Less than 1 second</div>`;
   }
   
   // Total posts
@@ -649,7 +748,7 @@ function renderPreviousDaySummary(summary) {
   if (topDomains.length > 0) {
     summaryHTML += `<div style="margin-bottom: 12px;"><strong>Top Domains:</strong><ul style="margin: 4px 0 0 20px; padding: 0;">`;
     topDomains.forEach(domain => {
-      summaryHTML += `<li>${domain.k}: ${formatMinutes(domain.v)}</li>`;
+      summaryHTML += `<li>${domain.k}: ${formatMinutesAndSeconds(domain.v)}</li>`;
     });
     summaryHTML += `</ul></div>`;
   }
@@ -658,7 +757,7 @@ function renderPreviousDaySummary(summary) {
   if (topContentTypes.length > 0) {
     summaryHTML += `<div style="margin-bottom: 12px;"><strong>Content Types:</strong><ul style="margin: 4px 0 0 20px; padding: 0;">`;
     topContentTypes.forEach(type => {
-      summaryHTML += `<li>${type.k}: ${formatMinutes(type.v)}</li>`;
+      summaryHTML += `<li>${type.k}: ${formatMinutesAndSeconds(type.v)}</li>`;
     });
     summaryHTML += `</ul></div>`;
   }
@@ -668,7 +767,7 @@ function renderPreviousDaySummary(summary) {
     summaryHTML += `<div style="margin-bottom: 12px;"><strong>Top Topics:</strong><ul style="margin: 4px 0 0 20px; padding: 0;">`;
     topTopics.forEach(topic => {
       const postCount = byTopicCounts[topic.k] || 0;
-      summaryHTML += `<li>${topic.k}: ${formatMinutes(topic.v)} (${postCount} post${postCount !== 1 ? 's' : ''})</li>`;
+      summaryHTML += `<li>${topic.k}: ${formatMinutesAndSeconds(topic.v)} (${postCount} post${postCount !== 1 ? 's' : ''})</li>`;
     });
     summaryHTML += `</ul></div>`;
   }
@@ -682,13 +781,69 @@ function renderPreviousDaySummary(summary) {
 }
 
 function loadPreviousDaySummary() {
-  chrome.runtime.sendMessage({ type: 'get_previous_day_summary' }, (summary) => {
-    if (chrome.runtime.lastError) {
-      console.error('[Horizon Popup] Error loading previous day summary:', chrome.runtime.lastError);
+  console.log('[Horizon Popup] Loading previous day summary...');
+  
+  // First, try to load stored summary snapshot (for persistence, like recommendations)
+  chrome.storage.local.get([
+    'horizon_summary_snapshot', 
+    'horizon_summary_date', 
+    'horizon_recommendations_date',
+    'horizon_recommendations_summary'
+  ], (stored) => {
+    const storedSummary = stored.horizon_summary_snapshot;
+    const storedSummaryDate = stored.horizon_summary_date;
+    const recommendationsDate = stored.horizon_recommendations_date;
+    const recommendationsSummary = stored.horizon_recommendations_summary;
+    
+    // Priority 1: Use summary stored with recommendations (most reliable)
+    if (recommendationsSummary && recommendationsSummary.day && recommendationsDate) {
+      console.log('[Horizon Popup] Loading summary from recommendations snapshot for:', recommendationsSummary.day);
+      renderPreviousDaySummary(recommendationsSummary);
       return;
     }
     
-    renderPreviousDaySummary(summary);
+    // Priority 2: Use stored summary snapshot if it matches recommendations date
+    if (storedSummary && storedSummary.day && storedSummaryDate === recommendationsDate) {
+      console.log('[Horizon Popup] Loading stored summary snapshot for:', storedSummary.day);
+      renderPreviousDaySummary(storedSummary);
+      return;
+    }
+    
+    // Priority 3: Get it from the background script
+    chrome.runtime.sendMessage({ type: 'get_previous_day_summary' }, (summary) => {
+      if (chrome.runtime.lastError) {
+        console.error('[Horizon Popup] Error loading previous day summary:', chrome.runtime.lastError);
+        // If background fails but we have a stored summary, use it anyway
+        if (storedSummary && storedSummary.day) {
+          console.log('[Horizon Popup] Background failed, using stored summary snapshot');
+          renderPreviousDaySummary(storedSummary);
+        } else if (recommendationsSummary && recommendationsSummary.day) {
+          console.log('[Horizon Popup] Background failed, using recommendations summary snapshot');
+          renderPreviousDaySummary(recommendationsSummary);
+        }
+        return;
+      }
+      
+      console.log('[Horizon Popup] Previous day summary received:', summary ? {
+        day: summary.day,
+        hasData: !!summary.day,
+        totalMs: summary.totalMs,
+        byTopicCountsKeys: Object.keys(summary.byTopicCounts || {}).length
+      } : 'null');
+      
+      // If we got a summary from background, use it (it will be stored by renderPreviousDaySummary)
+      if (summary && summary.day) {
+        renderPreviousDaySummary(summary);
+      } else if (storedSummary && storedSummary.day) {
+        // Fallback to stored summary if background returns null
+        console.log('[Horizon Popup] Background returned null, using stored summary snapshot');
+        renderPreviousDaySummary(storedSummary);
+      } else if (recommendationsSummary && recommendationsSummary.day) {
+        // Fallback to recommendations summary if background returns null
+        console.log('[Horizon Popup] Background returned null, using recommendations summary snapshot');
+        renderPreviousDaySummary(recommendationsSummary);
+      }
+    });
   });
 }
 
@@ -712,104 +867,132 @@ function renderRecommendations(recommendations, date = null, saveToStorage = tru
     error.style.border = '1px solid #e53e3e';
   }
   
-  // Get note element and always show the section and note when rendering recommendations
-  const noteElement = document.getElementById('recommendationsNote');
+  // Always show the section
   section.style.display = 'block';
-  if (noteElement) {
-    noteElement.style.display = 'block';
+  
+  // Ensure previous day summary section remains visible (they should coexist)
+  const previousDaySection = document.getElementById('previousDaySummarySection');
+  if (previousDaySection && previousDaySection.style.display === 'block') {
+    // Previous day summary is already visible, keep it that way
+    console.log('[Horizon Popup] Previous day summary section is visible, keeping it visible');
   }
   
-  // Display date if provided (format: "Month day-day after", e.g., "December 7-8")
-  if (dateElement) {
-    if (date) {
-      const dateObj = new Date(date);
-      const nextDay = new Date(dateObj);
-      nextDay.setDate(nextDay.getDate() + 1);
-      
-      // Format as "Month day-day after" (e.g., "December 7-8")
-      const month = dateObj.toLocaleDateString('en-US', { month: 'long' });
-      const day = dateObj.getDate();
-      const nextDayNum = nextDay.getDate();
-      
-      const formattedDate = `${month} ${day}-${nextDayNum}`;
-      dateElement.textContent = `Generated for: ${formattedDate}`;
-      dateElement.style.display = 'block';
-    } else {
-      dateElement.style.display = 'none';
-    }
-  }
-  
-  // Render recommendations with proper bullet point formatting
-  // Keep existing recommendations visible if no new ones provided
-  if (!recommendations || recommendations.trim().length === 0) {
-    // Only show "no recommendations" if list is empty
-    if (list.innerHTML.trim().length === 0) {
-      list.innerHTML = '<div style="padding: 16px; color: #718096; text-align: center; line-height: 1.6;">No recommendations have been generated yet! Use the extension for a while. Recommendations will be generated at the end of the day.</div>';
-    }
-    return;
-  }
-  
-  // Save recommendations to storage so they persist across popup closes
-  if (saveToStorage) {
-    chrome.storage.local.set({ 
-      'horizon_recommendations': recommendations,
-      'horizon_recommendations_date': date || new Date().toISOString().slice(0, 10)
-    }, () => {
-      console.log('[Horizon] Recommendations saved to storage');
-    });
-  }
-  
-  list.innerHTML = '';
-  const recDiv = document.createElement('div');
-  recDiv.style.cssText = 'padding: 16px; background: #f7fafc; border-left: 4px solid #2b6cb0; border-radius: 4px; line-height: 1.8;';
-  
-  // Parse recommendations text and format as bullet points
-  // Handle plain text lines (bullets will be added by this function)
-  let formattedText = recommendations.trim();
-  
-  // Remove any existing bullets to prevent double bullets
-  formattedText = formattedText.replace(/^[•\-\*]\s*/gm, ''); // Remove leading bullets
-  formattedText = formattedText.replace(/\s*[•\-\*]\s*/g, ' '); // Remove any bullets in text
-  
-  // Split by newlines to get individual recommendations
-  const lines = formattedText.split('\n').filter(line => line.trim().length > 0);
-  
-  // If we have multiple lines, each is a recommendation
-  if (lines.length > 1) {
-    formattedText = lines.map(line => {
-      const trimmed = line.trim();
-      // Remove any remaining bullets just in case
-      const clean = trimmed.replace(/^[•\-\*]\s*/, '').trim();
-      return clean;
-    }).filter(line => line.length > 0).join('\n');
-  } else if (lines.length === 1) {
-    // Single line - remove any bullets
-    formattedText = lines[0].trim().replace(/^[•\-\*]\s*/, '');
-  }
-  
-  // Convert to HTML with proper line breaks and SINGLE bullet styling
-  const htmlContent = formattedText
-    .split('\n')
-    .map(line => {
-      const trimmed = line.trim();
-      if (!trimmed) return '';
-      
-      // Remove any bullets that might still be there
-      const cleanContent = trimmed.replace(/^[•\-\*]\s*/, '').trim();
-      
-      if (cleanContent) {
-        // Add SINGLE bullet point
-        return `<div style="margin-bottom: 8px; padding-left: 4px;">• ${cleanContent}</div>`;
+  // Check if recommendations are enabled
+  chrome.storage.local.get(['settings'], (res) => {
+    const settings = res.settings || {};
+    const recommendationsEnabled = settings.enableRecommendations === true;
+    
+    if (!recommendationsEnabled) {
+      // Recommendations are disabled - clear the list and don't show recommendations
+      // The status message is already shown by updateRecommendationsLLMStatus() called in DOMContentLoaded
+      list.innerHTML = '';
+      const noteElement = document.getElementById('recommendationsNote');
+      if (noteElement) {
+        noteElement.style.display = 'none';
       }
-      return '';
-    })
-    .filter(html => html.length > 0)
-    .join('');
-  
-  recDiv.innerHTML = htmlContent || recommendations; // Fallback to plain text if parsing fails
-  list.appendChild(recDiv);
-  
-  // Section and note are already shown at the beginning of the function
+      if (dateElement) {
+        dateElement.style.display = 'none';
+      }
+      return;
+    }
+    
+    // Recommendations are enabled - proceed with normal rendering
+    // Get note element and show it when rendering recommendations
+    const noteElement = document.getElementById('recommendationsNote');
+    if (noteElement) {
+      noteElement.style.display = 'block';
+    }
+    
+    // Display date if provided (format: "Month day-day after", e.g., "December 7-8")
+    if (dateElement) {
+      if (date) {
+        const dateObj = new Date(date);
+        const nextDay = new Date(dateObj);
+        nextDay.setDate(nextDay.getDate() + 1);
+        
+        // Format as "Month day-day after" (e.g., "December 7-8")
+        const month = dateObj.toLocaleDateString('en-US', { month: 'long' });
+        const day = dateObj.getDate();
+        const nextDayNum = nextDay.getDate();
+        
+        const formattedDate = `${month} ${day}-${nextDayNum}`;
+        dateElement.textContent = `Generated for: ${formattedDate}`;
+        dateElement.style.display = 'block';
+      } else {
+        dateElement.style.display = 'none';
+      }
+    }
+    
+    // Render recommendations with proper bullet point formatting
+    // Keep existing recommendations visible if no new ones provided
+    if (!recommendations || recommendations.trim().length === 0) {
+      // Only show "no recommendations" if list is empty
+      if (list.innerHTML.trim().length === 0) {
+        list.innerHTML = '<div style="padding: 16px; color: #718096; text-align: center; line-height: 1.6;">No recommendations have been generated yet! Use the extension for a while. Recommendations will be generated at the end of the day.</div>';
+      }
+      return;
+    }
+    
+    // Save recommendations to storage so they persist across popup closes
+    if (saveToStorage) {
+      chrome.storage.local.set({ 
+        'horizon_recommendations': recommendations,
+        'horizon_recommendations_date': date || new Date().toISOString().slice(0, 10)
+      }, () => {
+        console.log('[Horizon] Recommendations saved to storage');
+      });
+    }
+    
+    list.innerHTML = '';
+    const recDiv = document.createElement('div');
+    recDiv.style.cssText = 'padding: 16px; background: #f7fafc; border-left: 4px solid #2b6cb0; border-radius: 4px; line-height: 1.8;';
+    
+    // Parse recommendations text and format as bullet points
+    // Handle plain text lines (bullets will be added by this function)
+    let formattedText = recommendations.trim();
+    
+    // Remove any existing bullets to prevent double bullets
+    formattedText = formattedText.replace(/^[•\-\*]\s*/gm, ''); // Remove leading bullets
+    formattedText = formattedText.replace(/\s*[•\-\*]\s*/g, ' '); // Remove any bullets in text
+    
+    // Split by newlines to get individual recommendations
+    const lines = formattedText.split('\n').filter(line => line.trim().length > 0);
+    
+    // If we have multiple lines, each is a recommendation
+    if (lines.length > 1) {
+      formattedText = lines.map(line => {
+        const trimmed = line.trim();
+        // Remove any remaining bullets just in case
+        const clean = trimmed.replace(/^[•\-\*]\s*/, '').trim();
+        return clean;
+      }).filter(line => line.length > 0).join('\n');
+    } else if (lines.length === 1) {
+      // Single line - remove any bullets
+      formattedText = lines[0].trim().replace(/^[•\-\*]\s*/, '');
+    }
+    
+    // Convert to HTML with proper line breaks and SINGLE bullet styling
+    const htmlContent = formattedText
+      .split('\n')
+      .map(line => {
+        const trimmed = line.trim();
+        if (!trimmed) return '';
+        
+        // Remove any bullets that might still be there
+        const cleanContent = trimmed.replace(/^[•\-\*]\s*/, '').trim();
+        
+        if (cleanContent) {
+          // Add SINGLE bullet point
+          return `<div style="margin-bottom: 8px; padding-left: 4px;">• ${cleanContent}</div>`;
+        }
+        return '';
+      })
+      .filter(html => html.length > 0)
+      .join('');
+    
+    recDiv.innerHTML = htmlContent || recommendations; // Fallback to plain text if parsing fails
+    list.appendChild(recDiv);
+  });
 }
 
 function updateRecommendationsLLMStatus() {
@@ -831,20 +1014,16 @@ function updateRecommendationsLLMStatus() {
       }
       llmStatusElement.style.display = 'block';
     } else {
-      llmStatusText.textContent = 'Recommendations are disabled. Enable them in the extension options to receive automatic recommendations at the end of each day.';
+      llmStatusText.textContent = 'Recommendations must be enabled in the options menu to receive them.';
       llmStatusElement.style.display = 'block';
     }
   });
 }
 
 function loadSummary() {
-  // Hide initializing message when starting to load
-  const initializingMsg = document.getElementById('initializingMessage');
-  if (initializingMsg) {
-    initializingMsg.style.display = 'none';
-  }
-  
-  chrome.runtime.sendMessage({ type: 'get_today_summary' }, (res) => {
+  // Load today's summary without triggering recommendation generation
+  // (recommendations are generated after summary is loaded if needed)
+  chrome.runtime.sendMessage({ type: 'get_today_summary', skipRecommendationCheck: true }, (res) => {
     if (chrome.runtime.lastError) {
       console.error('[Horizon Popup] Error loading summary:', chrome.runtime.lastError);
       // Use empty data structure if there's an error
@@ -939,16 +1118,16 @@ document.addEventListener('DOMContentLoaded', () => {
   // Update classifier status
   updateClassifierStatus();
   
-  // Show recommendations section
-  const recommendationsSection = document.getElementById('recommendationsSection');
-  if (recommendationsSection) {
-    recommendationsSection.style.display = 'block';
-  }
+  // Show recommendations section only if recommendations are enabled
+  // (It will be shown/hidden by renderRecommendations based on settings)
+  // Don't force it to show here - let renderRecommendations handle it
   
   // Load previous day's summary
   loadPreviousDaySummary();
   
   // Update LLM status (this will be called by updateClassifierStatus)
+  // Also update recommendations LLM status in the recommendations section
+  updateRecommendationsLLMStatus();
   
   // Load and display stored recommendations if they exist, otherwise show "no recommendations" message
   // Also trigger a check for recommendation generation (in case they need to be generated)
@@ -956,6 +1135,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (result.horizon_recommendations && result.horizon_recommendations.trim().length > 0) {
       console.log('[Horizon] Loading stored recommendations');
       renderRecommendations(result.horizon_recommendations, result.horizon_recommendations_date || null, false); // Don't save again, just display
+      // Ensure previous day summary is also loaded when recommendations exist
+      // Use a small delay to ensure data is available
+      setTimeout(() => {
+        loadPreviousDaySummary();
+      }, 100);
     } else {
       // No stored recommendations - show the "no recommendations" message
       console.log('[Horizon] No stored recommendations found');
@@ -977,8 +1161,10 @@ document.addEventListener('DOMContentLoaded', () => {
               if (updatedResult.horizon_recommendations && updatedResult.horizon_recommendations.trim().length > 0) {
                 console.log('[Horizon] Recommendations were generated, updating display');
                 renderRecommendations(updatedResult.horizon_recommendations, updatedResult.horizon_recommendations_date || null, false);
-                // Also refresh previous day summary in case it was just generated
-                loadPreviousDaySummary();
+                // Also refresh previous day summary in case it was just generated (with a small delay to ensure snapshot is stored)
+                setTimeout(() => {
+                  loadPreviousDaySummary();
+                }, 500);
               }
             });
           }, 2000); // Wait 2 seconds for recommendation generation to complete
@@ -989,27 +1175,124 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // Wait for Chart.js to be fully loaded
   if (typeof Chart !== 'undefined') {
-    loadSummary();
-        document.getElementById('refreshBtn').addEventListener('click', () => {
-          loadSummary();
-          updateClassifierStatus(); // Update classifier status on refresh
-        });
+    // Load today's summary without triggering recommendation generation
+    // (recommendations will be generated after summary is loaded if needed)
+    chrome.runtime.sendMessage({ type: 'get_today_summary', skipRecommendationCheck: true }, (res) => {
+      if (chrome.runtime.lastError) {
+        console.error('[Horizon Popup] Error loading summary:', chrome.runtime.lastError);
+        // Use empty data structure if there's an error
+        const cache = { 
+          day: new Date().toISOString().slice(0,10), 
+          byDomain: {}, 
+          byContentType: {}, 
+          byTopic: {}, 
+          byTopicCounts: {}, 
+          totalMs: 0 
+        };
+        drawUI(cache);
+        return;
+      }
+      
+      // Ensure we have a valid response object
+      const cache = res || { 
+        day: new Date().toISOString().slice(0,10), 
+        byDomain: {}, 
+        byContentType: {}, 
+        byTopic: {}, 
+        byTopicCounts: {}, 
+        totalMs: 0 
+      };
+      
+      // Ensure all required properties exist
+      if (!cache.byDomain) cache.byDomain = {};
+      if (!cache.byContentType) cache.byContentType = {};
+      if (!cache.byTopic) cache.byTopic = {};
+      if (!cache.byTopicCounts) cache.byTopicCounts = {};
+      if (typeof cache.totalMs !== 'number') cache.totalMs = 0;
+      
+      drawUI(cache);
+    });
+    
+    document.getElementById('refreshBtn').addEventListener('click', () => {
+      // Refresh also skips recommendation check to avoid redundant generation
+      chrome.runtime.sendMessage({ type: 'get_today_summary', skipRecommendationCheck: true }, (res) => {
+        if (chrome.runtime.lastError) {
+          console.error('[Horizon Popup] Error loading summary:', chrome.runtime.lastError);
+          return;
+        }
+        const cache = res || { 
+          day: new Date().toISOString().slice(0,10), 
+          byDomain: {}, 
+          byContentType: {}, 
+          byTopic: {}, 
+          byTopicCounts: {}, 
+          totalMs: 0 
+        };
+        if (!cache.byDomain) cache.byDomain = {};
+        if (!cache.byContentType) cache.byContentType = {};
+        if (!cache.byTopic) cache.byTopic = {};
+        if (!cache.byTopicCounts) cache.byTopicCounts = {};
+        if (typeof cache.totalMs !== 'number') cache.totalMs = 0;
+        drawUI(cache);
+        updateClassifierStatus(); // Update classifier status on refresh
+      });
+    });
     document.getElementById('clearBtn').addEventListener('click', clearTodayData);
   } else {
-    // If Chart.js isn't loaded yet, wait a bit and try again
-    setTimeout(() => {
-      if (typeof Chart !== 'undefined') {
-        loadSummary();
-        document.getElementById('refreshBtn').addEventListener('click', () => {
-          loadSummary();
-          updateClassifierStatus(); // Update classifier status on refresh
-        });
-        document.getElementById('clearBtn').addEventListener('click', clearTodayData);
-      } else {
-        console.error('[Horizon] Chart.js failed to load');
-        document.body.innerHTML = '<div style="padding: 20px; color: #e53e3e;">Error: Chart.js library failed to load. Please refresh the extension.</div>';
+        // If Chart.js isn't loaded yet, wait a bit and try again
+        setTimeout(() => {
+          if (typeof Chart !== 'undefined') {
+            // Load today's summary without triggering recommendation generation
+            chrome.runtime.sendMessage({ type: 'get_today_summary', skipRecommendationCheck: true }, (res) => {
+              if (chrome.runtime.lastError) {
+                console.error('[Horizon Popup] Error loading summary:', chrome.runtime.lastError);
+                return;
+              }
+              const cache = res || { 
+                day: new Date().toISOString().slice(0,10), 
+                byDomain: {}, 
+                byContentType: {}, 
+                byTopic: {}, 
+                byTopicCounts: {}, 
+                totalMs: 0 
+              };
+              if (!cache.byDomain) cache.byDomain = {};
+              if (!cache.byContentType) cache.byContentType = {};
+              if (!cache.byTopic) cache.byTopic = {};
+              if (!cache.byTopicCounts) cache.byTopicCounts = {};
+              if (typeof cache.totalMs !== 'number') cache.totalMs = 0;
+              drawUI(cache);
+            });
+            
+            document.getElementById('refreshBtn').addEventListener('click', () => {
+              chrome.runtime.sendMessage({ type: 'get_today_summary', skipRecommendationCheck: true }, (res) => {
+                if (chrome.runtime.lastError) {
+                  console.error('[Horizon Popup] Error loading summary:', chrome.runtime.lastError);
+                  return;
+                }
+                const cache = res || { 
+                  day: new Date().toISOString().slice(0,10), 
+                  byDomain: {}, 
+                  byContentType: {}, 
+                  byTopic: {}, 
+                  byTopicCounts: {}, 
+                  totalMs: 0 
+                };
+                if (!cache.byDomain) cache.byDomain = {};
+                if (!cache.byContentType) cache.byContentType = {};
+                if (!cache.byTopic) cache.byTopic = {};
+                if (!cache.byTopicCounts) cache.byTopicCounts = {};
+                if (typeof cache.totalMs !== 'number') cache.totalMs = 0;
+                drawUI(cache);
+                updateClassifierStatus(); // Update classifier status on refresh
+              });
+            });
+            document.getElementById('clearBtn').addEventListener('click', clearTodayData);
+          } else {
+            console.error('[Horizon] Chart.js failed to load');
+            document.body.innerHTML = '<div style="padding: 20px; color: #e53e3e;">Error: Chart.js library failed to load. Please refresh the extension.</div>';
+          }
+        }, 500);
       }
-    }, 500);
-  }
 });
 

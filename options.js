@@ -8,7 +8,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function initOptions() {
   const enableTracking = document.getElementById('enableTracking');
-  const includeTitles = document.getElementById('includeTitles');
   const enableML = document.getElementById('enableML');
   const recommendationLLMChatGPT = document.getElementById('recommendationLLMChatGPT');
   const recommendationLLMSmolLM = document.getElementById('recommendationLLMSmolLM');
@@ -16,21 +15,54 @@ async function initOptions() {
   const exportBtn = document.getElementById('exportBtn');
   const clearBtn = document.getElementById('clearBtn');
   const exportDataDiv = document.getElementById('exportData');
-  const lrStatus = document.getElementById('lrStatus');
+  const recommendationModelOptions = document.getElementById('recommendationModelOptions');
   // Check if all required elements exist
-  if (!enableTracking || !includeTitles || !enableML || !exportBtn || 
+  if (!enableTracking || !enableML || !exportBtn || 
       !clearBtn || !exportDataDiv) {
     console.error('[Horizon] Missing required DOM elements in options page');
     return;
   }
 
+  // Function to update recommendation model options visibility
+  function updateRecommendationModelOptions() {
+    if (recommendationModelOptions && enableRecommendations) {
+      const isEnabled = enableRecommendations.checked;
+      if (isEnabled) {
+        recommendationModelOptions.style.opacity = '1';
+        recommendationModelOptions.style.pointerEvents = 'auto';
+        if (recommendationLLMChatGPT) recommendationLLMChatGPT.disabled = false;
+        if (recommendationLLMSmolLM) recommendationLLMSmolLM.disabled = false;
+      } else {
+        recommendationModelOptions.style.opacity = '0.5';
+        recommendationModelOptions.style.pointerEvents = 'none';
+        if (recommendationLLMChatGPT) recommendationLLMChatGPT.disabled = true;
+        if (recommendationLLMSmolLM) recommendationLLMSmolLM.disabled = true;
+      }
+    }
+  }
+
   // Load existing settings
   chrome.storage.local.get(['settings'], (res) => {
     const s = res.settings || {};
-    enableTracking.checked = s.enableTracking === true;
-    includeTitles.checked = s.includeTitles === true;
+    // enableTracking controls both enableTracking and includeTitles
+    // Show as checked if either is enabled (backward compatibility)
+    enableTracking.checked = s.enableTracking === true || s.includeTitles === true;
     enableML.checked = s.enableML === true;
     enableRecommendations.checked = s.enableRecommendations === true;
+    
+    // If enableTracking is checked, ensure both are set to true
+    if (enableTracking.checked) {
+      chrome.storage.local.get(['settings'], (res2) => {
+        const s2 = res2.settings || {};
+        chrome.storage.local.set({
+          settings: {
+            ...s2,
+            enableTracking: true,
+            includeTitles: true
+          }
+        });
+      });
+    }
     
     // Set LLM preference (default to 'smollm' if not set)
     const llmPreference = s.recommendationLLM || 'smollm';
@@ -41,29 +73,64 @@ async function initOptions() {
         recommendationLLMSmolLM.checked = true;
       }
     }
+    
+    // Update recommendation model options visibility based on initial state
+    updateRecommendationModelOptions();
   });
 
   // Save settings on change
-  const settingsElements = [enableTracking, includeTitles, enableML, enableRecommendations];
-  
-  settingsElements.forEach(el =>
-    el.addEventListener('change', () => {
-      chrome.storage.local.get(['settings'], (res) => {
-        const s = res.settings || {};
-        const selectedLLM = recommendationLLMChatGPT?.checked ? 'chatgpt' : 'smollm';
-        chrome.storage.local.set({
-          settings: {
-            ...s,
-            enableTracking: enableTracking.checked,
-            includeTitles: includeTitles.checked,
-            enableML: enableML.checked,
-            enableRecommendations: enableRecommendations.checked,
-            recommendationLLM: selectedLLM
-          }
-        });
+  // enableTracking controls both enableTracking and includeTitles
+  enableTracking.addEventListener('change', () => {
+    chrome.storage.local.get(['settings'], (res) => {
+      const s = res.settings || {};
+      const selectedLLM = recommendationLLMChatGPT?.checked ? 'chatgpt' : 'smollm';
+      chrome.storage.local.set({
+        settings: {
+          ...s,
+          enableTracking: enableTracking.checked,
+          includeTitles: enableTracking.checked, // Set both to same value
+          enableML: enableML.checked,
+          enableRecommendations: enableRecommendations.checked,
+          recommendationLLM: selectedLLM
+        }
       });
-    })
-  );
+    });
+  });
+
+  enableML.addEventListener('change', () => {
+    chrome.storage.local.get(['settings'], (res) => {
+      const s = res.settings || {};
+      const selectedLLM = recommendationLLMChatGPT?.checked ? 'chatgpt' : 'smollm';
+      chrome.storage.local.set({
+        settings: {
+          ...s,
+          enableTracking: enableTracking.checked,
+          includeTitles: enableTracking.checked,
+          enableML: enableML.checked,
+          enableRecommendations: enableRecommendations.checked,
+          recommendationLLM: selectedLLM
+        }
+      });
+    });
+  });
+
+  enableRecommendations.addEventListener('change', () => {
+    chrome.storage.local.get(['settings'], (res) => {
+      const s = res.settings || {};
+      const selectedLLM = recommendationLLMChatGPT?.checked ? 'chatgpt' : 'smollm';
+      chrome.storage.local.set({
+        settings: {
+          ...s,
+          enableTracking: enableTracking.checked,
+          includeTitles: enableTracking.checked,
+          enableML: enableML.checked,
+          enableRecommendations: enableRecommendations.checked,
+          recommendationLLM: selectedLLM
+        }
+      });
+    });
+    updateRecommendationModelOptions();
+  });
 
   // Handle LLM preference radio button changes
   if (recommendationLLMChatGPT) {
@@ -100,57 +167,27 @@ async function initOptions() {
 
   // Export
   exportBtn.addEventListener('click', () => {
-    chrome.storage.local.get(null, (data) => {
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `horizon-export-${new Date().toISOString().slice(0,10)}.json`;
-      a.click();
-      exportDataDiv.textContent = "Data exported successfully.";
-    });
+    if (confirm('Are you sure you want to export all stored data? This will download a JSON file containing all your extension data.')) {
+      chrome.storage.local.get(null, (data) => {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `horizon-export-${new Date().toISOString().slice(0,10)}.json`;
+        a.click();
+        exportDataDiv.textContent = "Data exported successfully.";
+        exportDataDiv.style.display = 'block';
+      });
+    }
   });
 
   // Clear
   clearBtn.addEventListener('click', () => {
-    if (confirm('Are you sure you want to delete all stored data?')) {
+    if (confirm('Are you sure you want to delete all stored data? This will permanently delete all tracking data, settings, and recommendations. This action cannot be undone.')) {
       chrome.storage.local.clear(() => {
         alert('All data cleared.');
       });
     }
   });
 
-  // Check logistic regression model status
-  if (lrStatus) {
-    chrome.runtime.sendMessage({ type: 'check_lr_model' }, (response) => {
-      if (response && response.isLoaded) {
-        const modelInfo = response.modelInfo || {};
-        const numClasses = modelInfo.numClasses || 15;
-        const embeddingDim = modelInfo.embeddingDim || 384;
-        lrStatus.innerHTML = `
-          <div style="color: #38a169; font-weight: 600; margin-bottom: 8px; margin-top: 12px;">
-            Logistic Regression Model Loaded
-          </div>
-          <div style="font-size: 14px; color: #4a5568; line-height: 1.6;">
-            <strong>Classes:</strong> ${numClasses}<br>
-            <strong>Embedding dimension:</strong> ${embeddingDim}<br>
-            <span style="color: #718096; font-size: 12px; margin-top: 4px; display: block;">
-              The logistic regression classifier uses pre-trained weights and will be used for topic classification when enabled.
-            </span>
-          </div>
-        `;
-      } else {
-        lrStatus.innerHTML = `
-          <div style="color: #e53e3e; font-weight: 600; margin-bottom: 8px; margin-top: 12px;">
-            Logistic Regression Model Failed to Load
-          </div>
-          <div style="font-size: 14px; color: #4a5568; line-height: 1.6;">
-            <span style="color: #718096; font-size: 12px; margin-top: 4px; display: block;">
-              Check the browser console for error details. The model weights should be in dataset/model_weights.json.
-            </span>
-          </div>
-        `;
-      }
-    });
-  }
 }
